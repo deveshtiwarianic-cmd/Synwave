@@ -1,15 +1,21 @@
 {
   "name": "syncwave",
   "version": "1.0.0",
-  "description": "Multi-device synchronized music player",
+  "description": "Multi-device synchronized music player — एक साथ, एक धुन",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js"
   },
+  "keywords": ["music", "sync", "multi-device", "socket.io", "realtime"],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.21.0",
     "socket.io": "^4.7.5",
     "uuid": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

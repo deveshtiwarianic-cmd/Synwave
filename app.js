@@ -485,6 +485,14 @@ function initPlayer() {
     addUrlTrack(url, title);
   });
 
+  // Guest tap-to-play (autoplay unlock)
+  const syncBtn = $('#btn-sync-play');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', () => {
+      attemptPlay();
+    });
+  }
+
   // Demo track
   $('#btn-demo-track').addEventListener('click', () => {
     const track = DEMO_TRACKS[Math.floor(Math.random() * DEMO_TRACKS.length)];
@@ -555,15 +563,40 @@ function loadRemoteTrack(track, time = 0, shouldPlay = false) {
       state.audio.removeEventListener('loadedmetadata', onLoad);
       if (typeof time === 'number') state.audio.currentTime = time;
       if (shouldPlay) {
-        state.audio.play().catch(() => {});
-        state.isPlaying = true;
-        updatePlayUI(true);
+        attemptPlay();
       }
     }, { once: true });
   }
 
   $('#track-title').textContent = track.title || '—';
   $('#track-artist').textContent = track.artist || '—';
+}
+
+function attemptPlay() {
+  if (!state.audio) return;
+  state.audio.play().then(() => {
+    state.isPlaying = true;
+    updatePlayUI(true);
+    hideSyncOverlay();
+  }).catch((err) => {
+    console.log('Autoplay blocked:', err);
+    // Show tap-to-play overlay for guests
+    if (!state.isHost) {
+      showSyncOverlay();
+    } else {
+      toast('Play blocked — screen lock / silent mode check karo');
+    }
+  });
+}
+
+function showSyncOverlay() {
+  const el = $('#sync-overlay');
+  if (el) el.classList.remove('hidden');
+}
+
+function hideSyncOverlay() {
+  const el = $('#sync-overlay');
+  if (el) el.classList.add('hidden');
 }
 
 function togglePlay() {
@@ -646,10 +679,8 @@ function handleSyncPlay(track, time, serverTime) {
       if (typeof time === 'number' && Math.abs(state.audio.currentTime - time) > 0.8) {
         state.audio.currentTime = time;
       }
-      state.audio.play().catch(() => {});
+      attemptPlay();
     }
-    state.isPlaying = true;
-    updatePlayUI(true);
   }
 }
 
