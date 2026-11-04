@@ -194,6 +194,9 @@ function initModeTabs() {
       parent.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       state.mode = tab.dataset.mode;
+      if (state.mode === 'bluetooth') {
+        toast('Bluetooth phone-to-phone audio sharing browser में supported नहीं है। Wi-Fi या Internet चुनें।', 4200);
+      }
     });
   });
 }
@@ -216,6 +219,10 @@ function initCreate() {
     const roomName = $('#room-name').value.trim() || 'SYNCWAVE Room';
     const hostName = $('#host-name').value.trim() || 'Host';
 
+    if (state.mode === 'bluetooth') {
+      toast('Bluetooth mode अभी उपलब्ध नहीं है। Wi-Fi या Internet चुनें।', 3500);
+      return;
+    }
     state.isHost = true;
     state.userName = hostName;
     state.mode = document.querySelector('#create-screen .mode-tab.active')?.dataset.mode || 'wifi';
@@ -227,18 +234,8 @@ function initCreate() {
         mode: state.mode,
       });
     } else {
-      // Local / offline mode
-      state.roomCode = generateLocalCode();
-      state.roomName = roomName;
-      state.devices = [{
-        id: 'local',
-        name: hostName,
-        role: 'Host',
-        volume: state.volume,
-        isMe: true,
-      }];
-      enterRoom();
-      toast(`Room created (local) · ${state.roomCode}`);
+      state.isHost = false;
+      toast('Server connect नहीं है। Internet चालू करके page reload करें।', 3500);
     }
   });
 }
@@ -321,22 +318,30 @@ function updateDeviceList() {
   state.devices.forEach(d => {
     const li = document.createElement('li');
     li.className = 'device-item';
-    const initial = (d.name || '?').charAt(0).toUpperCase();
-
-    let kickHtml = '';
+    const avatar = document.createElement('div');
+    avatar.className = 'device-avatar';
+    avatar.textContent = (d.name || '?').charAt(0).toUpperCase();
+    const info = document.createElement('div');
+    info.className = 'device-info';
+    const name = document.createElement('div');
+    name.className = 'device-name';
+    name.textContent = `${d.name || 'Guest'}${d.isMe ? ' (You)' : ''}`;
+    const role = document.createElement('div');
+    role.className = 'device-role';
+    role.textContent = d.role || 'Guest';
+    info.append(name, role);
+    const volume = document.createElement('div');
+    volume.className = 'device-vol';
+    volume.textContent = `${d.volume ?? 80}%`;
+    li.append(avatar, info, volume);
     if (state.isHost && !d.isMe && d.role !== 'Host') {
-      kickHtml = `<button class="kick-btn" data-id="${d.id}" title="Remove">✕</button>`;
+      const kick = document.createElement('button');
+      kick.className = 'kick-btn';
+      kick.dataset.id = d.id;
+      kick.title = 'Remove';
+      kick.textContent = '✕';
+      li.appendChild(kick);
     }
-
-    li.innerHTML = `
-      <div class="device-avatar">${initial}</div>
-      <div class="device-info">
-        <div class="device-name">${d.name}${d.isMe ? ' (You)' : ''}</div>
-        <div class="device-role">${d.role}</div>
-      </div>
-      <div class="device-vol">${d.volume ?? 80}%</div>
-      ${kickHtml}
-    `;
     list.appendChild(li);
   });
 
@@ -402,7 +407,7 @@ function initAudio() {
   $('#progress-bar').addEventListener('click', (e) => {
     if (!state.isHost || !state.audio?.duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const time = pct * state.audio.duration;
     state.audio.currentTime = time;
     broadcastSeek(time);
@@ -477,8 +482,10 @@ function initPlayer() {
   $('#btn-url-add').addEventListener('click', () => {
     const url = $('#track-url').value.trim();
     const title = $('#track-title-input').value.trim() || 'URL Track';
-    if (!url) {
-      toast('URL डालें');
+    let parsed;
+    try { parsed = new URL(url); } catch (_) {}
+    if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+      toast('Valid http/https direct audio URL डालें');
       return;
     }
     $('#url-modal').classList.add('hidden');
@@ -520,6 +527,15 @@ function addUrlTrack(url, title) {
   };
   state.playlist.push(track);
   loadTrack(state.playlist.length - 1);
+  const startWhenReady = () => {
+    state.audio.play().then(() => {
+      state.isPlaying = true;
+      updatePlayUI(true);
+      broadcastPlay();
+    }).catch(() => toast('Play button दबाकर music शुरू करें'));
+  };
+  if (state.audio.readyState >= 2) startWhenReady();
+  else state.audio.addEventListener('canplay', startWhenReady, { once: true });
   toast('Track added');
 }
 
@@ -570,6 +586,8 @@ function loadRemoteTrack(track, time = 0, shouldPlay = false) {
 
   $('#track-title').textContent = track.title || '—';
   $('#track-artist').textContent = track.artist || '—';
+  state.isPlaying = false;
+  updatePlayUI(false);
 }
 
 function attemptPlay() {

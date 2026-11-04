@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
@@ -31,16 +30,20 @@ io.on('connection', (socket) => {
 
   // Create Room
   socket.on('create-room', ({ roomName, userName, mode }) => {
+    if (mode === 'bluetooth') {
+      socket.emit('error-msg', 'Bluetooth phone-to-phone sharing अभी supported नहीं है। Wi-Fi या Internet चुनें।');
+      return;
+    }
     const code = generateCode();
     const client = {
       id: socket.id,
-      name: userName || 'Host',
+      name: String(userName || 'Host').slice(0, 20),
       role: 'Host',
       volume: 80,
     };
 
     rooms.set(code, {
-      name: roomName || 'SYNCWAVE Room',
+      name: String(roomName || 'SYNCWAVE Room').slice(0, 24),
       hostId: socket.id,
       mode: mode || 'wifi',
       clients: new Map([[socket.id, client]]),
@@ -48,6 +51,7 @@ io.on('connection', (socket) => {
       isPlaying: false,
       currentTrack: null,
       currentTime: 0,
+      startedAt: null,
       playlist: [],
     });
 
@@ -74,9 +78,14 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (room.clients.size >= 20) {
+      socket.emit('error-msg', 'Room full है (maximum 20 devices).');
+      return;
+    }
+
     const client = {
       id: socket.id,
-      name: userName || 'Guest',
+      name: String(userName || 'Guest').slice(0, 20),
       role: 'Guest',
       volume: 80,
     };
@@ -93,7 +102,9 @@ io.on('connection', (socket) => {
       devices: Array.from(room.clients.values()),
       isPlaying: room.isPlaying,
       currentTrack: room.currentTrack,
-      currentTime: room.currentTime,
+      currentTime: room.isPlaying && room.startedAt
+        ? room.currentTime + (Date.now() - room.startedAt) / 1000
+        : room.currentTime,
     });
 
     // Notify others
@@ -141,14 +152,22 @@ io.on('connection', (socket) => {
   socket.on('play', ({ track, time }) => {
     const code = socket.roomCode;
     const room = rooms.get(code);
-    if (!room || socket.id !== room.hostId) return;
+    if (!room || socket.id !== room.hostId || !track || typeof track.url !== 'string') return;
+    let parsed;
+    try { parsed = new URL(track.url); } catch (_) { return; }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return;
 
     room.isPlaying = true;
-    room.currentTrack = track;
-    room.currentTime = time || 0;
+    room.currentTrack = {
+      title: String(track.title || 'Untitled').slice(0, 120),
+      artist: String(track.artist || '').slice(0, 120),
+      url: parsed.href,
+    };
+    room.currentTime = Math.max(0, Number(time) || 0);
+    room.startedAt = Date.now();
 
     socket.to(code).emit('sync-play', {
-      track,
+      track: room.currentTrack,
       time: room.currentTime,
       serverTime: Date.now(),
     });
@@ -160,7 +179,8 @@ io.on('connection', (socket) => {
     if (!room || socket.id !== room.hostId) return;
 
     room.isPlaying = false;
-    room.currentTime = time || 0;
+    room.currentTime = Math.max(0, Number(time) || 0);
+    room.startedAt = null;
 
     socket.to(code).emit('sync-pause', {
       time: room.currentTime,
@@ -172,18 +192,29 @@ io.on('connection', (socket) => {
     const room = rooms.get(code);
     if (!room || socket.id !== room.hostId) return;
 
-    room.currentTime = time;
-    socket.to(code).emit('sync-seek', { time });
+    if (!Number.isFinite(Number(time)) || Number(time) < 0) return;
+    room.currentTime = Number(time);
+    if (room.isPlaying) room.startedAt = Date.now();
+    socket.to(code).emit('sync-seek', { time: room.currentTime });
   });
 
   socket.on('track-change', ({ track, index }) => {
     const code = socket.roomCode;
     const room = rooms.get(code);
-    if (!room || socket.id !== room.hostId) return;
+    if (!room || socket.id !== room.hostId || !track || typeof track.url !== 'string') return;
+    let parsed;
+    try { parsed = new URL(track.url); } catch (_) { return; }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return;
 
-    room.currentTrack = track;
+    room.currentTrack = {
+      title: String(track.title || 'Untitled').slice(0, 120),
+      artist: String(track.artist || '').slice(0, 120),
+      url: parsed.href,
+    };
     room.currentTime = 0;
-    socket.to(code).emit('sync-track', { track, index });
+    room.startedAt = null;
+    room.isPlaying = false;
+    socket.to(code).emit('sync-track', { track: room.currentTrack, index });
   });
 
   // Volume update (per device)
@@ -194,7 +225,7 @@ io.on('connection', (socket) => {
 
     const client = room.clients.get(socket.id);
     if (client) {
-      client.volume = volume;
+      client.volume = Math.max(0, Math.min(100, Number(volume) || 0));
       socket.to(code).emit('device-volume', {
         id: socket.id,
         volume,
@@ -213,6 +244,8 @@ io.on('connection', (socket) => {
     if (targetSocket) {
       targetSocket.emit('kicked');
       targetSocket.leave(code);
+      targetSocket.roomCode = null;
+      targetSocket.isHost = false;
       room.clients.delete(targetId);
       io.to(code).emit('device-left', {
         id: targetId,

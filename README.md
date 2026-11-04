@@ -1,85 +1,60 @@
-# SYNCWAVE
+# SYNCWAVE 1.1
 
-Multi-device synchronized music player — **एक साथ, एक धुन**।
+Multi-device synchronized music player. A host creates a room; other phones join using a six-character code. Playback commands are sent in real time through Socket.IO.
 
-## Features
+## What works
 
-| Feature | Status |
-|---------|--------|
-| Create / Join Room (6-digit code) | ✅ |
-| Host Control (play/pause/seek/next/prev) | ✅ |
-| Real-time Device List | ✅ |
-| Per-device Volume | ✅ |
-| Kick device (Host) | ✅ |
-| Demo Tracks (public MP3) | ✅ |
-| Add by URL (shareable) | ✅ |
-| Local files (Host only) | ✅ |
-| Connection status indicator | ✅ |
-| Premium Black + Purple UI | ✅ |
-| Offline / Local mode fallback | ✅ |
+- Create and join rooms using a room code.
+- Wi-Fi/LAN mode: phones must be on the same network and open the host's server address.
+- Internet mode: deploy this Node.js app to a public HTTPS host; everyone joins the same deployed URL.
+- Host controls play, pause, seek, next and previous.
+- Guests receive track changes and playback commands.
+- Each phone controls its own speaker volume.
+- Host can add direct audio-file URLs, demo MP3s, or local files.
+- Host can remove a guest from the room.
+- Rooms support up to 20 connected devices in this MVP.
 
-## Quick Start
+## Start locally
 
-### 1. Frontend only (UI test)
+Requires Node.js 18+.
+
 ```bash
-cd syncwave
-npx serve .
-# open http://localhost:3000
-```
-
-### 2. Full Multi-Device (recommended)
-```bash
-cd syncwave
 npm install
 npm start
 ```
-Then open `http://localhost:3000` on **two devices / browsers**.
 
-**How to test sync:**
-1. Device A → Create Room → note the code
-2. Device B → Join Room → enter code
-3. Device A (Host) → press **🎵 Demo** button
-4. Both devices should start playing the same track in sync
+Open `http://localhost:3000` on the host computer. For another phone on the same Wi-Fi, open `http://HOST-LAN-IP:3000` (find the computer's local IP in its network settings).
 
-## Music Sources
+## Deploy for Internet use
 
-- **Demo** — Built-in free tracks (best for testing multi-device)
-- **URL** — Paste any direct `.mp3` / `.ogg` / `.wav` link
-- **Local** — Files from phone (only plays on Host)
+Deploy this folder as a Node.js web service on a host that supports persistent WebSocket connections.
 
-> Local files use blob URLs so they cannot be sent to other devices. Use Demo or URL for real sync.
+- Build/install command: `npm install`
+- Start command: `npm start`
+- The host must provide the `PORT` environment variable (Render does this automatically).
+- Use the public HTTPS service URL on every phone.
 
-## Project Structure
+Rooms are stored in server memory. Restarting/redeploying the server clears active rooms. A single running server instance is expected for this MVP.
 
-```
-├── index.html      # UI screens
-├── style.css       # Premium theme
-├── app.js          # Frontend + Socket client
-├── server.js       # Socket.IO rooms + sync
-├── package.json
-└── README.md
-```
+## Music source notes
 
-## Tech
+- **Direct URL:** use a publicly reachable direct `.mp3`, `.ogg`, or `.wav` file URL. The website hosting the file must permit browser playback (CORS may be required by some hosts).
+- **Demo:** uses public SoundHelix example MP3 files; availability depends on that external host and network.
+- **Local file:** plays only on the host phone/browser. A browser `blob:` URL cannot be shared with other devices.
+- YouTube, Spotify, and streaming-service page links are not direct audio-file URLs and will not play in this player.
 
-- HTML / CSS / Vanilla JS
-- Node.js + Express
-- Socket.IO (real-time)
-- Web Audio API
+## Important device limitations
 
-## Limitations (current MVP)
+- Wi-Fi and Internet modes use the same real-time Socket.IO room system; the difference is how phones reach the server.
+- Bluetooth phone-to-phone audio broadcasting is **not** available in a normal mobile browser. The Bluetooth tab is retained as a disabled/future mode and the app warns users not to select it.
+- Phones play the audio separately from the same URL. This is synchronized playback control, not one phone transmitting its audio signal to all other phones. Network delay and device audio buffering can cause small differences.
+- Mobile browsers may block autoplay. A guest may need to tap **Tap to Play** once after joining or when the host starts playback.
+- Keep the page open while listening; mobile browsers may pause background audio or network activity.
 
-1. Perfect sample-accurate sync is hard over network — expect ~50-200ms drift
-2. Bluetooth speaker mode needs native app (Web Bluetooth limitations)
-3. YouTube links won't work directly (need direct audio file URLs)
+## Project files
 
-## Next Roadmap
-
-- [ ] WebRTC peer audio streaming
-- [ ] Better clock sync (NTP-style)
-- [ ] Capacitor Android APK
-- [ ] Playlist visible to all members
-- [ ] Host remote volume control per device
-
----
-SYNCWAVE
+- `index.html` — interface
+- `style.css` — responsive visual design
+- `app.js` — audio player and Socket.IO client
+- `server.js` — room and playback synchronization server
+- `package.json` — Node dependencies and start script
